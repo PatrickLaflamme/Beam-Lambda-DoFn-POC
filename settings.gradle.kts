@@ -8,4 +8,4 @@
  */
 
 rootProject.name = "apache-beam-lambda-poc"
-include("app", "do-fns", "utilities")
+include("pipelines", "do-fns", "utilities")

@@ -8,8 +8,6 @@ plugins {
 
 dependencies {
     implementation(project(":utilities"))
-    implementation(platform("org.apache.beam:beam-sdks-java-bom:2.39.0"))
-    implementation(platform("com.amazonaws:aws-java-sdk-bom:1.11.1000"))
     implementation("com.amazonaws:aws-java-sdk-lambda")
     implementation("org.apache.beam:beam-sdks-java-core")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.3.2")

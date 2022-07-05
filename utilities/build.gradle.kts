@@ -5,3 +5,7 @@
 plugins {
     id("ai.triton.platform.kotlin-library-conventions")
 }
+
+dependencies {
+    implementation("org.apache.beam:beam-sdks-java-core")
+}

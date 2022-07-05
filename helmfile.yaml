@@ -1,0 +1,20 @@
+repositories:
+  - name: nginx-stable
+    url: https://helm.nginx.com/stable
+  - name: bitnami
+    url: https://charts.bitnami.com/bitnam
+
+releases:
+  - name: ingress
+    chart: nginx-stable/nginx-ingress
+    wait: true
+  - name: spark
+    namespace: poc
+    createNamespace: true
+    chart: bitnami/spark
+    values:
+      - ingress.enabled: true
+  - name: local-lambda
+    namespace: poc
+    chart: lambdas/local-deploy
+

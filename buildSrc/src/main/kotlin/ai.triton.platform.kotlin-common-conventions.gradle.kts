@@ -4,7 +4,9 @@
 
 plugins {
     // Apply the org.jetbrains.kotlin.jvm Plugin to add support for Kotlin.
-    id("org.jetbrains.kotlin.jvm")
+    kotlin("jvm")
+    kotlin("plugin.serialization")
+    //id("com.google.protobuf")
 }
 
 repositories {
@@ -28,6 +30,10 @@ dependencies {
 
     // Align versions of all Kotlin components
     implementation(platform("org.jetbrains.kotlin:kotlin-bom"))
+
+    implementation(platform("com.amazonaws:aws-java-sdk-bom:1.11.1000"))
+    implementation(platform("org.apache.beam:beam-sdks-java-bom:2.39.0"))
+    implementation("io.arrow-kt:arrow-core:1.0.0")
 
     // Use JUnit Jupiter for testing.
     testImplementation("org.junit.jupiter:junit-jupiter:5.8.1")

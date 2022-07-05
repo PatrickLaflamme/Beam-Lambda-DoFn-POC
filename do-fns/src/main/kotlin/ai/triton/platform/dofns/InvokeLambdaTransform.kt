@@ -1,102 +1,180 @@
 package ai.triton.platform.dofns
 
 
-import com.amazonaws.services.lambda.AWSLambda;
-import com.amazonaws.services.lambda.AWSLambdaClientBuilder;
-import com.amazonaws.services.lambda.model.InvokeRequest;
-import com.amazonaws.services.lambda.model.LogType;
-import com.amazonaws.services.lambda.model.InvokeResult;
-import com.amazonaws.services.lambda.model.ServiceException;
-import kotlinx.serialization.Serializable;
-import kotlinx.serialization.json.Json;
-import kotlinx.serialization.encodeToString;
-import kotlinx.serialization.decodeFromString;
-import org.apache.beam.sdk.transforms.DoFn;
-import org.apache.beam.sdk.transforms.DoFn.ProcessContext;
-import org.apache.beam.sdk.transforms.windowing.BoundedWindow;
-import org.joda.time.Instant;
+import ai.triton.platform.config.LambdaFunction
+import ai.triton.platform.plus
+import com.amazonaws.services.lambda.AWSLambda
+import com.amazonaws.services.lambda.model.InvokeRequest
+import com.amazonaws.services.lambda.model.LogType
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import org.apache.beam.sdk.transforms.MapElements
+import org.apache.beam.sdk.transforms.ParDo
+import org.apache.beam.sdk.transforms.windowing.BoundedWindow
+import org.apache.beam.sdk.values.PCollection
+import org.apache.beam.sdk.values.TupleTag
+import org.apache.beam.sdk.values.TupleTagList
+import org.joda.time.Instant
+import java.nio.charset.StandardCharsets
+import ai.triton.platform.dofns.Serializable as SerializableType
 
 
-import ai.triton.platform.config.LambdaFunction;
-import java.nio.charset.StandardCharsets;
+class FailedLambdaException(messages: List<String>) : Exception(messages.joinToString("\n"))
 
 
-class InvokeLambdaTransform<T,R>(
-  val region: String,
-  val batchSize: Int,
-  val function: LambdaFunction<T,R>
-): FailureCollectingDoFn<T, R>() {
+inline fun <reified T: SerializableType, reified R: SerializableType> FailureAwarePCollection<T>.transformWithLambda(
+    client: AWSLambda,
+    batchSize: Int,
+    function: LambdaFunction<T, R>,
+): FailureAwarePCollection<R> {
+    val invokeLambdaTransform = InvokeLambdaTransform(
+        client,
+        batchSize,
+        function
+    )
+    val parDo = ParDo.of(invokeLambdaTransform)
+        .withOutputTags(
+            function.validTupleTag,
+            TupleTagList.of(invokeLambdaTransform.failuresTag)
+        )
+    val resultTuple = data.apply(function.name, parDo)
+    val validResults = resultTuple.get(function.validTupleTag)
+    val currentFailures = resultTuple.get(invokeLambdaTransform.failuresTag)
+    return FailureAwarePCollection(
+        validResults,
+        failures + listOf(currentFailures)
+    )
+}
 
-  override val className = this::class.qualifiedName;
-  private val requestCache: MutableList<RequestRecord> = mutableListOf();
-  private val windowsById: MutableMap<T, BoundedWindow> = mutableMapOf();
-  private val responseCache: MutableList<ResponseRecord> = mutableListOf();
-  private val client: AWSLambda = AWSLambdaClientBuilder.standard().build();
+class InvokeLambdaTransform<T : ai.triton.platform.dofns.Serializable, R : ai.triton.platform.dofns.Serializable>(
+    val client: AWSLambda,
+    val batchSize: Int,
+    val function: LambdaFunction<T, R>
+) : FailureCollectingDoFn<T, R>() {
 
-  override fun processElement(c: ProcessContext, window: BoundedWindow) {
-    requestCache.add(c.element());
-    windowsById.put(c.element().hashCode(), window);
-    if (requestCache.size >= batchSize) {
-      invoke();
-      requestCache.clear();
+    private val requestCache: MutableList<RequestRecord<T>> = mutableListOf()
+    private val windowsById: MutableMap<Int, Pair<BoundedWindow, Instant>> = mutableMapOf()
+    private val responseCache: MutableList<ResponseRecord<R>> = mutableListOf()
+    private val failureCache: MutableList<Triple<Failure, BoundedWindow, Instant>> = mutableListOf()
+
+    @StartBundle
+    fun startBundle() {
+        requestCache.clear()
+        responseCache.clear()
+        failureCache.clear()
+        windowsById.clear()
     }
-  }
 
-  @FinishBundle
-  fun finishBundle(fbc: FinishBundleContext) {
-    invoke();
-    responseCache.forEach{ response -> 
-      fbc.output(response);
-    };
-    requestCache.clear();
-    responseCache.clear();
-    windowsById.clear();
-  }
-
-  private fun invoke() {
-    val records = pending.mapNotNull({ elementId -> 
-      requestCache.get(elementId)
-      ?.let { content ->
-        RequestRecord(
-          id=content.element.hashCode(), 
-          data=content.element, 
-        );
-      };
-    });
-    val requestPayload = RequestPayload(Records=records);
-    val requestString = Json.encodeToString(requestPayload)
-    val request = InvokeRequest()
-      .withFunctionName(function.name)
-      .withPayload(requestString)
-      .withLogType(LogType.Tail);
-    val response = client.invoke(request);
-    val result = String(response.getPayload().array(), StandardCharsets.UTF_8);
-    val responsePayload = Json.decodeFromString<ResponsePayload>(result);
-    responsePayload.Records.forEach { record ->
-      responseCache.add(record);
+    override fun processElement(c: ProcessContext, window: BoundedWindow) {
+        requestCache.add(RequestRecord(id = c.element().hashCode(), data = c.element()))
+        windowsById[c.element().hashCode()] = Pair(window, c.timestamp())
+        c.timestamp()
+        if (requestCache.size >= batchSize) {
+            invoke()
+            requestCache.clear()
+        }
     }
-  }
 
-  @Serializable
-  private inner class RequestPayload(
-    val Records: List<RequestRecord>
-  );
+    @FinishBundle
+    fun finishBundle(fbc: FinishBundleContext) {
+        invoke()
+        responseCache.forEach { response ->
+            response.data
+                ?.let { data ->
+                    windowsById[response.id]
+                        ?.let { (window, timestamp) ->
+                            fbc.output(data, timestamp, window)
+                            return@forEach
+                        }
+                    throw IllegalStateException()
+                }
+            throw IllegalStateException()
+        }
+        failureCache.forEach { failure ->
 
-  @Serializable
-  private inner class RequestRecord(
-    val id: Int,
-    val data: T,
-  );
+        }
+    }
 
-  @Serializable
-  private inner class ResponseRecord(
-    val id: Int,
-    val data: R?,
-    val errorMessages: List<String>?
-  );
+    private fun invoke() {
+        try {
+            val requestPayload = RequestPayload(records = requestCache)
+            val requestString = Json.encodeToString(requestPayload)
+            val request = InvokeRequest()
+                .withFunctionName(function.name)
+                .withPayload(requestString)
+                .withLogType(LogType.Tail)
+            val response = client.invoke(request)
+            val result = String(response.payload.array(), StandardCharsets.UTF_8)
+            val responsePayload = Json.decodeFromString<ResponsePayload<R>>(result)
+            responsePayload.records.forEach { record ->
+                record.data?.let {
+                    responseCache.add(record)
+                    return@forEach
+                }
+                record.errorMessages?.let { errorMessages ->
+                    val throwable = FailedLambdaException(errorMessages)
+                    val failure = Failure(
+                        precursorData = requestCache.find { request -> request.id == record.id }
+                            ?.data
+                            ?.toJsonElement()
+                            ?: throw IllegalStateException(),
+                        failedClass = this::class.qualifiedName ?: this::javaClass.name,
+                        exceptionMessage = throwable.message,
+                        exceptionName = throwable::class.qualifiedName ?: throwable::javaClass.name,
+                        stackTrace = throwable.stackTrace.map(StackTraceElement::toString)
+                    )
+                    windowsById[record.id]
+                        ?.let { (window, timestamp) ->
+                            failureCache.add(Triple(failure, window, timestamp))
+                            return@forEach
+                        }
+                    throw IllegalStateException()
+                }
+            }
+        } catch (e: Throwable) {
+            requestCache.forEach { request ->
+                val failure = Failure(
+                    precursorData = request.data.toJsonElement(),
+                    failedClass = this::class.qualifiedName ?: this::javaClass.name,
+                    exceptionMessage = e.message,
+                    exceptionName = e::class.qualifiedName ?: e::javaClass.name,
+                    stackTrace = e.stackTrace.map(StackTraceElement::toString)
+                )
+                windowsById[request.id]
+                    ?.let { (window, timestamp) ->
+                        failureCache.add(Triple(failure, window, timestamp))
+                        return@forEach
+                    }
+                throw IllegalStateException()
+            }
+        }
+    }
 
-  @Serializable
-  private inner class ResponsePayload(
-    val Records: List<ResponseRecord>
-  );
+    @Serializable
+    private data class RequestPayload<T>(
+        @SerialName("Records")
+        val records: List<RequestRecord<T>>
+    )
+
+    @Serializable
+    private data class RequestRecord<T>(
+        val id: Int,
+        val data: T,
+    )
+
+    @Serializable
+    private data class ResponseRecord<R>(
+        val id: Int,
+        val data: R?,
+        val errorMessages: List<String>?
+    )
+
+    @Serializable
+    private data class ResponsePayload<R>(
+        @SerialName("Records")
+        val records: List<ResponseRecord<R>>
+    )
 }
