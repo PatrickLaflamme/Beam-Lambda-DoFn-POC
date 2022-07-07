@@ -25,7 +25,7 @@ tasks.withType<KotlinCompile> {
 }
 
 tasks.withType<ShadowJar> {
-    archiveFileName.set("app.jar")
+    archiveFileName.set("pipelines.shadow.jar")
 }
 
 application {

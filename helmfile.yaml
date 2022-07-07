@@ -14,7 +14,14 @@ releases:
     chart: bitnami/spark
     values:
       - ingress.enabled: true
+    wait: true
   - name: local-lambda
     namespace: poc
     chart: lambdas/local-deploy
+    wait: true
+  - name: spark-submit
+    namespace: poc
+    installed: false
+    chart: pipelines/pipelines
+
 
