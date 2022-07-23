@@ -18,10 +18,12 @@ dependencies {
     implementation("org.apache.beam:beam-runners-spark-3")
     implementation("org.apache.beam:beam-sdks-java-core")
     implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.3.2")
+    implementation("org.apache.logging.log4j:log4j-core:2.18.0")
+    implementation("org.apache.logging.log4j:log4j-slf4j-impl:2.0.2")
 }
 
 tasks.withType<KotlinCompile> {
-    kotlinOptions.jvmTarget = "11"
+    kotlinOptions.jvmTarget = "1.8"
 }
 
 tasks.withType<ShadowJar> {
@@ -30,5 +32,5 @@ tasks.withType<ShadowJar> {
 
 application {
     // Define the main class for the application.
-    mainClass.set("ai.triton.platform.pipelines.AppKt")
+    mainClass.set("ai.triton.platform.AppKt")
 }

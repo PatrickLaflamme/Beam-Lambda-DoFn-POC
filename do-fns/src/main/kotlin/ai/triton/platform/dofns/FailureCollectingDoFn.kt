@@ -8,7 +8,6 @@ import kotlinx.serialization.json.JsonElement
 import org.apache.beam.sdk.transforms.DoFn
 import org.apache.beam.sdk.transforms.windowing.BoundedWindow
 import org.apache.beam.sdk.values.TupleTag
-import ai.triton.platform.dofns.Serializable as SerializableType
 import java.io.Serializable as JavaSerializable
 
 abstract class FailureCollectingDoFn<T : ai.triton.platform.dofns.Serializable, R : ai.triton.platform.dofns.Serializable> : DoFn<T, R>() {
@@ -24,7 +23,7 @@ abstract class FailureCollectingDoFn<T : ai.triton.platform.dofns.Serializable, 
             c.output(
                 failuresTag,
                 Failure(
-                    precursorData = c.element().toJsonElement(),
+                    precursorDataJson = c.element().toJsonElement().toString(),
                     failedClass = this::class.qualifiedName ?: this::javaClass.name,
                     exceptionName = e::class.qualifiedName ?: e::javaClass.name,
                     exceptionMessage = e.message,
@@ -36,17 +35,10 @@ abstract class FailureCollectingDoFn<T : ai.triton.platform.dofns.Serializable, 
 }
 
 @Serializable
-class Failure(
-    val precursorData: JsonElement,
+data class Failure(
+    val precursorDataJson: String,
     val failedClass: String,
     val exceptionName: String,
     val exceptionMessage: String?,
     val stackTrace: List<String>,
-): SerializableType, JavaSerializable {
-    companion object {
-        val failureTag = object: TupleTag<Failure>() {}
-    }
-    override fun toJsonElement(): JsonElement {
-        return Json.encodeToJsonElement(this)
-    }
-}
+): JavaSerializable

@@ -14,6 +14,7 @@ releases:
     chart: bitnami/spark
     values:
       - ingress.enabled: true
+        image.tag: 3.1.3-debian-11-r6
     wait: true
   - name: local-lambda
     namespace: poc
@@ -21,7 +22,7 @@ releases:
     wait: true
   - name: spark-submit
     namespace: poc
-    installed: false
+    installed: true
     chart: pipelines/pipelines
 
 

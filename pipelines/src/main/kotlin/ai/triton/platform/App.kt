@@ -4,7 +4,9 @@
 package ai.triton.platform
 
 import ai.triton.platform.pipeline.PocPipeline
+import org.apache.beam.sdk.io.FileSystems
 import org.apache.beam.sdk.options.PipelineOptionsFactory
+import org.apache.beam.sdk.testing.TestPipeline
 
 
 fun main(args: Array<String>) {

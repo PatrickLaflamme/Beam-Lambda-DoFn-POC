@@ -1,11 +1,10 @@
 package ai.triton.platform.dofns
 
-import kotlinx.serialization.json.JsonElement
-import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.encodeToString
 import org.apache.beam.sdk.coders.NullableCoder
 import org.apache.beam.sdk.transforms.InferableFunction
 import org.apache.beam.sdk.transforms.MapElements
-import org.apache.beam.sdk.transforms.ProcessFunction
 import org.apache.beam.sdk.transforms.SimpleFunction
 import org.apache.beam.sdk.transforms.WithFailures.ExceptionElement
 import org.apache.beam.sdk.values.PCollection
@@ -89,17 +88,17 @@ inline fun <reified I, reified T> FailureAwarePCollection<I>.mapWithFailures(
     )
 }
 
-open class ExceptionAsFailure<T>(val failedClassName: String) :
+open class ExceptionAsFailure<T>(private val failedClassName: String) :
     SimpleFunction<ExceptionElement<T>, Failure>() {
     override fun apply(f: ExceptionElement<T>): Failure {
         val exception = f.exception()
-        val precursorData: JsonElement = when(val element = f.element() as Any) {
-            is String -> JsonPrimitive(element)
-            is Serializable -> element.toJsonElement()
-            else -> JsonPrimitive(element.toString())
+        val precursorDataJson: String = when(val element = f.element() as Any) {
+            is String -> element
+            is Serializable -> element.toJsonElement().toString()
+            else -> f.element().toString()
         }
         return Failure(
-            precursorData = precursorData,
+            precursorDataJson = precursorDataJson,
             failedClass = failedClassName,
             exceptionMessage = exception.message,
             exceptionName = exception::class.qualifiedName ?: exception::javaClass.name,

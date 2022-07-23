@@ -2,6 +2,7 @@ from random import random
 
 
 def handler(event, context):
+    print("received event", event)
     responses = []
     for record in event.get("Records", []):
         current = {k: v for k, v in record.get("data").items() if k != "previous"}

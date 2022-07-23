@@ -39,7 +39,7 @@ class SerializationTransform<T: Serializable>: DoFn<T, String>() {
             c.output(
                 failuresTag,
                 Failure(
-                    precursorData = c.element().toJsonElement(),
+                    precursorDataJson = c.element().toJsonElement().toString(),
                     failedClass = this::class.qualifiedName ?: this::javaClass.name,
                     exceptionName = e::class.qualifiedName ?: e::javaClass.name,
                     exceptionMessage = e.message,
